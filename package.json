@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "postinstall": "npm install"
+    "postinstall": "npm install",
+    "preinstall": "npm install"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
