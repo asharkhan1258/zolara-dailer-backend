@@ -1,0 +1,41 @@
+/* Simple animation control with checkbox */
+
+/* Checkbox styling using input[type=checkbox] */
+input[type=checkbox] {
+    width: 20px;
+    height: 20px;
+    margin-bottom: 20px;
+}
+
+/* Box with animation properties */
+.box {
+    width: 100px;
+    height: 100px;
+    background: red;
+    animation-name: move;
+    animation-duration: 2s;
+    animation-iteration-count: infinite;
+    animation-direction: alternate;
+}
+
+/* Keyframe animation definition */
+@keyframes move {
+    from {
+        transform: translateY(0);
+    }
+    to {
+        transform: translateY(200px);
+    }
+}
+
+/* Animation control using input[type=checkbox] selector */
+input[type=checkbox]:checked ~ .box {
+    animation-play-state: paused;
+}
+
+.container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-top: 50px;
+}
