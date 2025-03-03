@@ -40,7 +40,7 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Store active calls and agent statuses
+// Store active calls and agent statuse
 const activeCalls = new Map();
 const agentStatuses = new Map();
 
