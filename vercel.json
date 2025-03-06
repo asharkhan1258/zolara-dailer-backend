@@ -3,12 +3,12 @@
     "routes": [
       {
         "src": "/(.*)",
-        "dest": "api/index.js"
+        "dest": "index.js"
       }
     ],
     "builds": [
       {
-        "src": "backend/package.json",
+        "src": "package.json",
         "use": "@vercel/node"
       }
     ]
