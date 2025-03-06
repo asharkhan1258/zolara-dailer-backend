@@ -148,7 +148,7 @@ const importLeads = async (req, res) => {
       .on('end', async () => {
         try {
           const leads = await Lead.insertMany(
-            results?.map(lead => ({
+            results.map(lead => ({
               ...lead,
               source: 'import',
               // assignedTo: req.user._id

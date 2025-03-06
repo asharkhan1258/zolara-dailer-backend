@@ -174,7 +174,7 @@ app.post('/api/twiml/connect', async (req, res) => {
     return res.status(400).json({ success: false, error: "Missing callSid" });
   }
   // Fetch the correct active call
-  const conferenceName = [...activeCalls.values()][0]?.conferenceName;
+  const conferenceName = [...activeCalls.values()][0].conferenceName;
   console.log("Active Calls", activeCalls)
   console.log("active call conference name", conferenceName)
  
@@ -213,7 +213,7 @@ app.post('/api/calls/status', async (req, res) => {
   try {
       // Get the call data and user ID
       const callData = activeCalls.get(callSid);
-      const userId = callData?.userId;
+      const userId = callData.userId;
 
       if (userId) {
           // Create call history data
