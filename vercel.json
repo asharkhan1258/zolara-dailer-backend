@@ -8,7 +8,7 @@
     ],
     "builds": [
       {
-        "src": "master/package.json",
+        "src": "package.json",
         "use": "@vercel/node"
       }
     ]
