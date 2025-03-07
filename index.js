@@ -16,12 +16,13 @@ const io = new Server(server, {
   cors: {
     origin: [`${process.env.CLIENT_URL}`, 'https://zolara-dialer-frontend.vercel.app', "http://localhost:3000", "https://zolara-dialer.vercel.app"],
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH", "CONNECT", "TRACE", "PURGE"],
+    credentials: true
   },
   transports: ['websocket', 'polling']
 });
 connectDB()
 const allowedOrigins = [
-  `${process.env.CLIENT_URL}`,'https://zolara-dialer-frontend.vercel.app', 'http://localhost:3000', 'https://zolara-dialer.vercel.app', 
+  `${process.env.CLIENT_URL}`,'https://zolara-dialer-frontend.vercel.app', 'http://localhost:3000', 'https://zolara-dialer.vercel.app'
 ];
 
 // Middleware
