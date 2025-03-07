@@ -9,37 +9,56 @@ const leadRoutes = require('./routes/leadRoutes');
 const authRoutes = require('./routes/authRoutes');
 const callHistoryRoutes = require('./routes/callHistoryRoutes');
 const connectDB = require('./config/database');
+connectDB()
 const app = express();
 const server = http.createServer(app);
 console.log
+// WebSocket Server Configuration
 const io = new Server(server, {
   cors: {
-    origin: [`${process.env.CLIENT_URL}`, 'https://zolara-dialer-frontend.vercel.app/', "http://localhost:3000", "https://zolara-dialer.vercel.app", "*"],
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH", "CONNECT", "TRACE", "PURGE"],
-    credentials: true
+    origin: [
+      process.env.CLIENT_URL,
+      'https://zolara-dialer-frontend.vercel.app',
+      'http://localhost:3000',
+      'https://zolara-dialer.vercel.app',
+    ],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    credentials: true,
   },
-  transports: ['websocket', 'polling']
+  transports: ['websocket', 'polling'],
 });
-connectDB()
+
+// Database Connection
+connectDB();
+
+// CORS Configuration
 const allowedOrigins = [
-  `${process.env.CLIENT_URL}`,'https://zolara-dialer-frontend.vercel.app', 'http://localhost:3000', 'https://zolara-dialer.vercel.app', "*"
+  process.env.CLIENT_URL,
+  'https://zolara-dialer-frontend.vercel.app',
+  'http://localhost:3000',
+  'https://zolara-dialer.vercel.app',
 ];
 
-// Middleware
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error(origin + ' Not allowed by CORS'));
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD', 'PATCH', 'CONNECT', 'TRACE', 'PURGE'],
-}));
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  })
+);
 
+// Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Handle preflight requests
+app.options('*', cors());
 
 // Store active calls and agent statuse
 const activeCalls = new Map();
@@ -529,18 +548,6 @@ app.post('/api/twiml/fallback', (req, res) => {
   res.type('text/xml').send(twiml.toString());
 });
 
-app.get('/', (req, res) => {
-  try {
-    // Convert Map to array and sort by timestamp
-    const history = Array.from(callHistory.values())
-      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-      .slice(0, 100); // Limit to last 100 calls
-    res.send('Dialer Api is working...');
-  } catch (error) {
-    console.error('Error fetching call history:', error);
-    res.status(500).json({ error: 'Failed to fetch call history' });
-  }
-});
 app.get('/api/call-history', (req, res) => {
   try {
     // Convert Map to array and sort by timestamp
