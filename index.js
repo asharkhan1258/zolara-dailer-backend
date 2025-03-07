@@ -11,10 +11,10 @@ const callHistoryRoutes = require('./routes/callHistoryRoutes');
 const connectDB = require('./config/database');
 const app = express();
 const server = http.createServer(app);
-console.log(process.env.CLIENT_URL)
+console.log
 const io = new Server(server, {
   cors: {
-    origin: [`${process.env.CLIENT_URL}`, 'https://zolara-dialer-frontend.vercel.app', "http://localhost:3000", "https://zolara-dialer.vercel.app"],
+    origin: [`${process.env.CLIENT_URL}`, 'https://zolara-dialer-frontend.vercel.app/', "http://localhost:3000", "https://zolara-dialer.vercel.app", "*"],
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH", "CONNECT", "TRACE", "PURGE"],
     credentials: true
   },
@@ -22,7 +22,7 @@ const io = new Server(server, {
 });
 connectDB()
 const allowedOrigins = [
-  `${process.env.CLIENT_URL}`,'https://zolara-dialer-frontend.vercel.app', 'http://localhost:3000', 'https://zolara-dialer.vercel.app'
+  `${process.env.CLIENT_URL}`,'https://zolara-dialer-frontend.vercel.app', 'http://localhost:3000', 'https://zolara-dialer.vercel.app', "*"
 ];
 
 // Middleware
@@ -529,6 +529,18 @@ app.post('/api/twiml/fallback', (req, res) => {
   res.type('text/xml').send(twiml.toString());
 });
 
+app.get('/', (req, res) => {
+  try {
+    // Convert Map to array and sort by timestamp
+    const history = Array.from(callHistory.values())
+      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+      .slice(0, 100); // Limit to last 100 calls
+    res.send('Dialer Api is working...');
+  } catch (error) {
+    console.error('Error fetching call history:', error);
+    res.status(500).json({ error: 'Failed to fetch call history' });
+  }
+});
 app.get('/api/call-history', (req, res) => {
   try {
     // Convert Map to array and sort by timestamp
