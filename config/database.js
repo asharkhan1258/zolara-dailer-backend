@@ -1,27 +1,55 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
+require("dotenv").config();
 
-const connectDB = async (retries = 5, delay = 5000) => {
-  for (let i = 0; i < retries; i++) {
+// Set mongoose options
+mongoose.set('strictQuery', false);  // Option for MongoDB schema query behavior
+if (process.env.NODE_ENV === 'development') {
+  mongoose.set("debug", true);
+}
+
+// Retry logic for MongoDB connection
+const connectDB = async (retries = 5, delay = 2000) => {
+  while (retries) {
     try {
-      const conn = await mongoose.connect('mongodb+srv://saad:Saad@8212@cluster0.irhxo3y.mongodb.net/zolara-dialer', {
+      // Try to connect to MongoDB with the correct options
+      await mongoose.connect(process.env.DB_CONNECTION, {
         useNewUrlParser: true,
         useUnifiedTopology: true,
+        keepAlive: true,  // Enable MongoDB connection keep-alive
+        // serverSelectionTimeoutMS: 5000,  // Set server selection timeout to 5 seconds
+        // socketTimeoutMS: 45000,  // Set socket timeout to 45 seconds
+        // maxPoolSize: 20,  // Increase connection pool size for concurrent requests
       });
-
-      console.log(`MongoDB Connected: ${conn.connection.host}`);
-      return; // Exit function once connected
+      console.log('Database connection established');
+      return;  // Exit if connection is successful
     } catch (error) {
-      console.error(`MongoDB Connection Failed. Attempt ${i + 1} of ${retries}. Error: ${error.message}`);
+      retries -= 1;  // Decrease retries
+      console.error(`Error connecting to database. Retries left: ${retries}`, error.message);
 
-      if (i < retries - 1) {
-        console.log(`Retrying connection in ${delay / 1000} seconds...`);
-        await new Promise((res) => setTimeout(res, delay)); // Wait before retrying
+      if (retries > 0) {
+        console.log(`Retrying in ${delay / 1000} seconds...`);
+        await new Promise(res => setTimeout(res, delay)); // Wait before retrying
       } else {
-        console.error('All connection attempts failed. Exiting...');
-        process.exit(1); // Exit the application if all retries fail
+        console.error('Could not connect to the database after multiple attempts');
+        process.exit(1);  // Exit the process after all retries fail
       }
     }
   }
 };
+
+// Handle connection errors during runtime
+mongoose.connection.on('error', (err) => {
+  console.error('MongoDB connection error:', err.message);
+  console.log('Attempting to reconnect...');
+  connectDB();
+});
+
+// Handle successful reconnections
+mongoose.connection.on('connected', () => {
+  console.log('MongoDB reconnected');
+});
+
+// Initial connection attempt
+connectDB();
 
 module.exports = connectDB;
