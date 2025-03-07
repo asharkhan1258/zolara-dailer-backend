@@ -17,7 +17,6 @@ console.log
 const io = new Server(server, {
   cors: {
     origin: [
-      process.env.CLIENT_URL,
       'https://zolara-dialer-frontend.vercel.app',
       'http://localhost:3000',
       'https://zolara-dialer.vercel.app',
@@ -29,11 +28,10 @@ const io = new Server(server, {
 });
 
 // Database Connection
-connectDB();
+
 
 // CORS Configuration
 const allowedOrigins = [
-  process.env.CLIENT_URL,
   'https://zolara-dialer-frontend.vercel.app',
   'http://localhost:3000',
   'https://zolara-dialer.vercel.app',
@@ -547,7 +545,9 @@ app.post('/api/twiml/fallback', (req, res) => {
   twiml.hangup();
   res.type('text/xml').send(twiml.toString());
 });
-
+app.get('/', (req, res) => {
+  res.send('Dialer Api is Running...');
+});
 app.get('/api/call-history', (req, res) => {
   try {
     // Convert Map to array and sort by timestamp
