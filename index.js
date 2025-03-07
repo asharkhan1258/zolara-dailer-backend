@@ -14,7 +14,7 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: [`${process.env.CLIENT_URL}`, "http://localhost:3000", "https://zolara-dialer.vercel.app", "*"],
-    methods: ["GET", "POST"],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH", "CONNECT", "TRACE", "PURGE"],
     credentials: true
   },
   transports: ['websocket', 'polling']
