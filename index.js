@@ -13,6 +13,10 @@ connectDB()
 const app = express();
 const server = http.createServer(app);
 console.log
+
+// Helper to ensure BASE_URL doesn't have trailing slash
+const BASE_URL = process.env.BASE_URL?.replace(/\/+$/, '') || '';
+
 // WebSocket Server Configuration
 const io = new Server(server, {
   cors: {
@@ -146,70 +150,87 @@ app.post('/api/calls/initiate', async (req, res) => {
     return res.status(400).json({ success: false, message: "Missing 'to' number" });
   }
 
-  console.log(`🚀 Initiating call to ${to} from ${from}`);
+  console.log(`🚀 Initiating DIRECT call to ${to} from ${from}`);
 
   try {
     const formattedNumber = to.startsWith('+') ? to : `+${to}`;
 
-    const call = await twilioClient.calls.create({
-      url: `${process.env.BASE_URL}/api/twiml/connect?To=${encodeURIComponent(formattedNumber)}`,
-      to: formattedNumber,
-      from: from,
-      record: true,
-      statusCallback: `${process.env.BASE_URL}/api/calls/status`,
-      statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed', 'canceled', 'busy'],
-      statusCallbackMethod: 'POST',
-      timeout: 60
-    });
-    console.log(userId, 'User Id....')
-    // Store original outbound call with userId
-    activeCalls.set(call.sid, { 
-      callSid: call.sid, 
+    // Store call initiation info (before the call is created)
+    const callData = { 
       to: formattedNumber, 
-      status: 'initiated', 
-      conferenceName: `conf_${formattedNumber}`,
-      userId: userId 
+      status: 'initiating', 
+      userId: userId,
+      from: from,
+      timestamp: new Date().toISOString()
+    };
+
+    console.log(`✅ Call will be created by device.connect() on frontend`);
+
+    res.json({ 
+      success: true,
+      to: formattedNumber,
+      from: from
     });
-
-    console.log(`📞 Call created with SID: ${call.sid}`);
-
-    res.json({ success: true, callId: call.sid });
   } catch (error) {
     console.error('❌ Error initiating call:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-app.post('/api/twiml/connect', async (req, res) => {
-  let { callSid } = req.body;
-  if (callSid == undefined) {
-    callSid = req.body.CallSid;
-  }
-  console.log(req.body);
+// Customer joins conference (called when customer answers)
+app.post('/api/twiml/customer', async (req, res) => {
+  const conferenceName = req.query.conferenceName || req.body.conferenceName;
+  
+  console.log('👤 Customer TwiML request:', { conferenceName, body: req.body });
 
-  if (!callSid) {
-    console.error("❌ Missing CallSid in /connect request.");
-    return res.status(400).json({ success: false, error: "Missing callSid" });
-  }
-  // Fetch the correct active call
-  const conferenceName = [...activeCalls.values()][0].conferenceName;
-  console.log("Active Calls", activeCalls)
-  console.log("active call conference name", conferenceName)
- 
- 
-  // TwiML to connect agent to conference
   const twiml = new VoiceResponse();
-  const dial = twiml.dial();
-  dial.conference({
-    startConferenceOnEnter: true,
-    endConferenceOnExit: false,
-    beep: false,
-    waitUrl: "http://twimlets.com/holdmusic?Bucket=com.twilio.music.classical",
-    statusCallbackEvent: ["start", "end", "join", "leave"],
-    statusCallback: `${process.env.BASE_URL}/conference-status`,
-    statusCallbackMethod: "POST",
-    maxParticipants: 2
-  }, conferenceName);
+  
+  if (!conferenceName) {
+    twiml.say('Conference not found.');
+    twiml.hangup();
+  } else {
+    // Customer joins conference and waits for agent
+    const dial = twiml.dial();
+    dial.conference({
+      startConferenceOnEnter: false,  // Don't start until agent joins
+      endConferenceOnExit: true,      // End conference when customer leaves
+      beep: false,
+      waitUrl: "http://twimlets.com/holdmusic?Bucket=com.twilio.music.classical",
+      statusCallbackEvent: ["start", "end", "join", "leave"],
+      statusCallback: `${BASE_URL}/conference-status`,
+      statusCallbackMethod: "POST",
+      maxParticipants: 2
+    }, conferenceName);
+  }
+
+  res.set('Content-Type', 'text/xml');
+  res.send(twiml.toString());
+});
+
+// Agent joins conference (called when agent's browser receives call)
+app.post('/api/twiml/agent', async (req, res) => {
+  const conferenceName = req.query.conferenceName || req.body.conferenceName;
+  
+  console.log('🎧 Agent TwiML request:', { conferenceName, body: req.body });
+
+  const twiml = new VoiceResponse();
+  
+  if (!conferenceName) {
+    twiml.say('Conference not found.');
+    twiml.hangup();
+  } else {
+    // Agent joins the same conference as customer
+    const dial = twiml.dial();
+    dial.conference({
+      startConferenceOnEnter: true,   // Agent starts the conference
+      endConferenceOnExit: false,     // Conference continues if agent leaves
+      beep: false,
+      statusCallbackEvent: ["start", "end", "join", "leave"],
+      statusCallback: `${BASE_URL}/conference-status`,
+      statusCallbackMethod: "POST",
+      maxParticipants: 2
+    }, conferenceName);
+  }
 
   res.set('Content-Type', 'text/xml');
   res.send(twiml.toString());
@@ -286,63 +307,50 @@ app.post('/api/calls/status', async (req, res) => {
   }
 });
 
+// Test endpoint to verify route is working
+app.get('/api/calls/end', (req, res) => {
+  res.json({ message: 'Endpoint exists. Use POST method to end calls.' });
+});
+
 app.post('/api/calls/end', async (req, res) => {
+  console.log('🔴 /api/calls/end endpoint hit');
+  console.log('Request body:', req.body);
+  
   const { callId } = req.body;
 
   if (!callId) {
+    console.error('❌ Missing callId in request');
     return res.status(400).json({ success: false, message: "Missing callId" });
   }
 
   console.log(`🔴 Attempting to end call: ${callId}`);
 
   try {
-    // Step 1: Find the active call
-    const callData = activeCalls.get(callId);
-    if (!callData) {
-      console.warn(`⚠️ Call ${callId} not found in activeCalls.`);
-      return res.status(404).json({ success: false, message: "Call not found" });
+    // For direct calls (device.connect), just end the call SID directly
+    // No need to find conference since we're using direct dialing now
+    
+    try {
+      console.log(`📱 Ending call on Twilio: ${callId}`);
+      await twilioClient.calls(callId).update({ status: 'completed' });
+      console.log(`✅ Call ${callId} ended successfully on Twilio.`);
+    } catch (twilioError) {
+      // Call might already be ended
+      console.warn(`⚠️ Could not end call ${callId} on Twilio:`, twilioError.message);
+      // Don't return error - continue cleanup
     }
 
-    console.log(`🔍 Fetching active conference for: ${callData.to}`);
-
-    // Step 2: Fetch the **actual conference SID**
-    const conferences = await twilioClient.conferences.list({ status: 'in-progress', limit: 20 });
-    const matchingConference = conferences.find(conf => conf.friendlyName === `conf_${callData.to}`);
-    console.log("Matching Conference", conferences)
-    if (!matchingConference) {  
-      console.warn(`⚠️ No active conference found for ${callData.to}. It may have already ended.`);
-      return res.status(404).json({ success: false, message: "Conference not found" });
+    // Remove call from active calls if exists
+    if (activeCalls.has(callId)) {
+      activeCalls.delete(callId);
+      console.log(`🗑️ Removed call ${callId} from activeCalls`);
     }
 
-    console.log(`✅ Found active conference: ${matchingConference.sid}, ending it now...`);
-
-    // Step 3: Remove all participants from the conference
-    const participants = await twilioClient.conferences(matchingConference.sid).participants.list();
-    for (let participant of participants) {
-      console.log(`🔴 Removing participant: ${participant.callSid}`);
-      await twilioClient.conferences(matchingConference.sid).participants(participant.callSid).remove();
-    }
-
-    // Step 4: End the Twilio call for the mobile user
-    if (callData.callSid) {
-      try {
-        console.log(`📱 Ending call on Twilio: ${callData.callSid}`);
-        await twilioClient.calls(callData.callSid).update({ status: 'completed' });
-      } catch (error) {
-        console.error(`❌ Error ending callSid ${callData.callSid} on Twilio:`, error);
-      }
-    }
-
-    // Step 5: Remove call from active calls
-    activeCalls.delete(callId);
-
-    // **NEW: Emit `callEnded` event for all clients**
+    // Emit callEnded event for all clients
     console.log(`🚀 Emitting callEnded event for callSid: ${callId}`);
     io.emit('callEnded', { callSid: callId });
 
-    console.log(`✅ Call and conference ${matchingConference.sid} ended successfully.`);
-
-    res.json({ success: true });
+    console.log(`✅ Call end process completed for ${callId}`);
+    res.json({ success: true, message: 'Call ended successfully' });
 
   } catch (error) {
     console.error("❌ Error ending call:", error);
@@ -350,18 +358,109 @@ app.post('/api/calls/end', async (req, res) => {
   }
 });
 
-// Voice Webhook Handler
+// Voice Webhook Handler - handles device.connect() outbound calls and incoming calls
 app.post('/voice', async (req, res) => {
-  console.log('\n === INCOMING CALL WEBHOOK ===');
-  console.log('🔍 Raw Webhook Request:', JSON.stringify(req.body, null, 2));
+  console.log('\n === VOICE WEBHOOK ===');
+  console.log('🔍 Full Request Body:', JSON.stringify(req.body, null, 2));
+  console.log('🔍 Query Params:', JSON.stringify(req.query, null, 2));
   console.log('Call Details:', {
     From: req.body.From,
-    To: req.body.To,
+    To: req.body.To || 'undefined',
     callSid: req.body.CallSid,
     Direction: req.body.Direction
   });
 
   const twiml = new VoiceResponse();
+  
+  // Check if this is an outbound call from device.connect()
+  // The 'Caller' field contains the client identity, not 'From'
+  const isOutboundCall = (req.body.Caller && req.body.Caller.startsWith('client:')) || 
+                         (req.body.From && req.body.From.startsWith('client:'));
+  
+  // For device.connect(), the To parameter comes from the params object
+  // Twilio sends custom params as top-level properties in the request body
+  let customerNumber = null;
+  
+  // Check all possible locations for the customer number
+  // 1. Direct To field (standard incoming calls)
+  if (req.body.To && !req.body.To.startsWith('client:')) {
+    customerNumber = req.body.To;
+  } 
+  // 2. Query parameter
+  else if (req.query.To) {
+    customerNumber = req.query.To;
+  }
+  // 3. Custom parameter from device.connect({ params: { To: ... }})
+  // These appear as top-level properties in req.body
+  else if (isOutboundCall) {
+    // For outbound calls from client, check for custom parameters
+    // Look for any property that looks like a phone number
+    for (const [key, value] of Object.entries(req.body)) {
+      if (key === 'To' || key === 'to' || key === 'phoneNumber' || key === 'number') {
+        if (typeof value === 'string' && (value.startsWith('+') || value.match(/^\d{10,15}$/))) {
+          customerNumber = value;
+          console.log(`📱 Found customer number in req.body.${key}:`, customerNumber);
+          break;
+        }
+      }
+    }
+  }
+  
+  console.log('🔍 Detection:', {
+    isOutboundCall,
+    customerNumber,
+    caller: req.body.Caller,
+    from: req.body.From,
+    bodyTo: req.body.To,
+    queryTo: req.query.To
+  });
+  
+  if (isOutboundCall) {
+    if (!customerNumber) {
+      console.error('❌ ERROR: Outbound call from client but no customer number found!');
+      twiml.say('Error: No phone number specified.');
+      twiml.hangup();
+      res.type('text/xml');
+      return res.send(twiml.toString());
+    }
+    
+    // This is a device.connect() outbound call - directly dial the customer
+    console.log('📞 Outbound call detected! Dialing customer:', customerNumber);
+    
+    const callSid = req.body.CallSid;
+    const userId = req.body.userId || req.query.userId;
+    
+    // Store call info
+    if (callSid) {
+      activeCalls.set(callSid, {
+        callSid: callSid,
+        to: customerNumber,
+        status: 'initiated',
+        userId: userId,
+        timestamp: new Date().toISOString()
+      });
+      console.log('✅ Stored call info for SID:', callSid);
+    }
+    
+    // Direct dial to customer
+    const dial = twiml.dial({
+      callerId: process.env.TWILIO_PHONE_NUMBER,
+      record: 'record-from-answer',
+      recordingStatusCallback: `${BASE_URL}/api/recording/status`,
+      recordingStatusCallbackMethod: 'POST'
+    });
+    dial.number(customerNumber);
+    
+    const twimlString = twiml.toString();
+    console.log('📤 Returning TwiML:', twimlString);
+    
+    res.type('text/xml');
+    return res.send(twimlString);
+  }
+
+  // Otherwise, this is an incoming customer call
+  console.log(' === INCOMING CUSTOMER CALL ===');
+  
   if (!req.body.To) {
     console.error("❌ ERROR: Twilio did not send 'To' in the request.");
   }
@@ -381,15 +480,15 @@ app.post('/voice', async (req, res) => {
       return res.type('text/xml').send(twiml.toString());
     }
 
-    const conferenceName = `conf_${req.body.To || 'UnknownCall'}`;
-    console.log(' Creating conference:', conferenceName);
+    const incomingConferenceName = `conf_${req.body.To || 'UnknownCall'}`;
+    console.log(' Creating conference:', incomingConferenceName);
 
     // Store call info
     const callInfo = {
       from: req.body.From,
       to: req.body.To,
       status: 'ringing',
-      conferenceName,
+      conferenceName: incomingConferenceName,
       callSid: req.body.CallSid,
       timestamp: new Date().toISOString()
     };
@@ -402,7 +501,7 @@ app.post('/voice', async (req, res) => {
       callSid: req.body.CallSid,
       from: req.body.From,
       to: req.body.To,
-      conferenceName,
+      conferenceName: incomingConferenceName,
       status: 'ringing'
     };
     console.log(' Emitting incomingCall event:', incomingCallData);
@@ -418,10 +517,10 @@ app.post('/voice', async (req, res) => {
       waitMethod: 'GET',
       beep: false,
       statusCallbackEvent: ['start', 'end', 'join', 'leave'],
-      statusCallback: `${process.env.BASE_URL}/conference-status`,
+      statusCallback: `${BASE_URL}/conference-status`,
       statusCallbackMethod: 'POST',
       maxParticipants: 2
-    }, conferenceName);
+    }, incomingConferenceName);
 
     const twimlString = twiml.toString();
     console.log(' Generated TwiML:', twimlString);
@@ -447,13 +546,13 @@ app.post('/api/calls/accept', async (req, res) => {
   console.log('🔹 Active Call Data:', callData);
   try {
     const agentCall = await twilioClient.calls.create({
-      url: `${process.env.BASE_URL}/join-conference?conferenceName=${callData.conferenceName}`,
+      url: `${BASE_URL}/join-conference?conferenceName=${callData.conferenceName}`,
       to: `client:${callSid}`,
       sid: callData.callSid,
       callSid: callData.callSid,
       CallSid: callData.CallSid,
       from: process.env.TWILIO_PHONE_NUMBER,
-      statusCallback: `${process.env.BASE_URL}/api/calls/status`,
+      statusCallback: `${BASE_URL}/api/calls/status`,
       statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed', 'canceled', 'busy'],
       statusCallbackMethod: 'POST'
     });
@@ -503,7 +602,7 @@ app.post('/join-conference', (req, res) => {
       endConferenceOnExit: false,
       beep: false,
       statusCallbackEvent: ['start', 'end', 'join', 'leave'],
-      statusCallback: `${process.env.BASE_URL}/conference-status`,
+      statusCallback: `${BASE_URL}/conference-status`,
       statusCallbackMethod: 'POST',
       maxParticipants: 2
     }, conferenceName);
@@ -544,6 +643,24 @@ app.post('/api/twiml/fallback', (req, res) => {
   twiml.say("Sorry, we are unable to process your call at the moment. Please try again later.");
   twiml.hangup();
   res.type('text/xml').send(twiml.toString());
+});
+
+// Fallback voice endpoint (for TwiML App - redirects to proper endpoints)
+app.post('/api/twiml/voice', (req, res) => {
+  console.log('📞 Voice endpoint called (fallback):', req.body);
+  
+  const twiml = new VoiceResponse();
+  twiml.say('This endpoint is for configuration only. Please use the dialer interface.');
+  twiml.hangup();
+  
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
+
+// Recording status callback
+app.post('/api/recording/status', (req, res) => {
+  console.log('🎙️ Recording status:', req.body);
+  res.sendStatus(200);
 });
 app.get('/', (req, res) => {
   res.send('Dialer Api is Running...');
